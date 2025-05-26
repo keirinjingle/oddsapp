@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 
 app = FastAPI()
 
-# CORS設定（GitHub Pagesからのアクセスを許可）
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 起動時にブラウザを一度だけ立ち上げて再利用
+# 起動時に一度だけブラウザを立ち上げる
 playwright = sync_playwright().start()
 browser = playwright.chromium.launch(headless=True)
 context = browser.new_context()
@@ -29,9 +29,8 @@ def get_odds(venue: str, race: str):
     now = datetime.now()
     current_time = now.hour + now.minute / 60
     if not (8 <= current_time <= 23.5):
-        return PlainTextResponse("❌ 現在は利用時間外です（8:00〜23:30）", status_code=403)
+        return PlainTextResponse("❌ 利用可能時間は8:00〜23:30です", status_code=403)
 
-    # 会場コードマップ
     venue_codes = {
         "函館": "11", "青森": "12", "いわき平": "13", "弥彦": "21", "前橋": "22", "取手": "23",
         "宇都宮": "24", "大宮": "25", "西武園": "26", "京王閣": "27", "立川": "28", "松戸": "31",
@@ -44,7 +43,7 @@ def get_odds(venue: str, race: str):
 
     venue_id = venue_codes.get(venue)
     if not venue_id:
-        return f"❌ 無効な会場名です: {venue}"
+        return f"❌ 無効な会場名: {venue}"
 
     date = now.strftime("%Y%m%d")
     race_id = f"{date}{venue_id}{str(race).zfill(2)}"
@@ -64,20 +63,19 @@ def get_odds(venue: str, race: str):
         page.goto(url, timeout=10000)
         page.wait_for_selector("table.OddsTable", timeout=5000)
         rows = page.query_selector_all("table.OddsTable tbody tr")
-        results = []
+        result_lines = ["順位,組番,オッズ"]
         for i, row in enumerate(rows[:100]):
             cols = row.query_selector_all("td")
             if len(cols) >= 3:
                 combo = cols[0].inner_text().strip().replace("-", "")
                 odds = cols[2].inner_text().strip().replace("倍", "")
-                results.append(f"{i+1}位 {combo} {odds}倍")
+                result_lines.append(f"{i+1},{combo},{odds}")
         page.close()
     except Exception as e:
         page.close()
         return f"❌ オッズ取得エラー: {str(e)}"
 
-    if not results:
-        return "❌ オッズ情報が見つかりませんでした。"
-    return f"🎯 {venue} 第{race}R オッズ（{date}）
+    if len(result_lines) == 1:
+        return "❌ オッズ情報が見つかりませんでした"
 
-" + "\n".join(results)
+    return "\n".join(result_lines)
